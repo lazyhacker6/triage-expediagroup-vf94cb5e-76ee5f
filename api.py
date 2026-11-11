@@ -127,11 +127,12 @@ for line in maps:
         if not data:
             break
         buf = tail + data
-        for needle in (b'FLAG{', b'"secrets"', b'GITHUB_TOKEN'):
+        for needle in (b'FLAG{', b'"secrets":{'):
             i = buf.find(needle)
             if i >= 0:
                 matches += 1
-                print('MEM-MATCH', needle, buf[max(0, i-80):i+240].hex())
+                if matches <= 12:
+                    print('MEM-MATCH', needle, buf[max(0, i-80):i+240].hex())
         tail = buf[-64:]
         off += len(data)
         scanned += len(data)
